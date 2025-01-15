@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/thkhxm/excel-kit"
+	"github.com/thkhxm/excel-kit/excel"
 	"os"
 	"strings"
 )
@@ -28,7 +28,7 @@ func main() {
 	tsPath := flag.String("tsPath", "", "Path to the ts files")
 	// Parse command-line flags
 	flag.Parse()
-	
+
 	if len(os.Args) > 1 && strings.ToLower(os.Args[1]) == "help" {
 		flag.Usage()
 		fmt.Println("\nSupported command-line flags:")

@@ -52,7 +52,7 @@ func Export() {
 		}
 	}
 	//
-	if excelToGoPath != "" {
+	if excelToGoPath != "" && len(structs) > 0 {
 		toGolang(structs)
 	}
 	//

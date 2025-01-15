@@ -1,7 +1,7 @@
 package excel_test
 
 import (
-	"github.com/thkhxm/excel-kit"
+	"github.com/thkhxm/excel-kit/excel"
 )
 
 //***************************************************
