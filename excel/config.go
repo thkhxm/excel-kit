@@ -3,8 +3,6 @@ package excel
 import (
 	"bufio"
 	"fmt"
-	"github.com/bytedance/sonic"
-	"github.com/xuri/excelize/v2"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +10,9 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/bytedance/sonic"
+	"github.com/xuri/excelize/v2"
 )
 
 //***************************************************
@@ -29,6 +30,7 @@ var (
 	excelToGoPath         = ""
 	excelToUnityPath      = ""
 	excelToTsPath         = ""
+	excelToSqlPath        = ""
 	excelPath             = ""
 	goPackage             = "conf"
 	unityPackage          = "HotFix.Config"
@@ -62,6 +64,10 @@ func Export() {
 		} else {
 			toUnity(structs)
 		}
+	}
+
+	if excelToSqlPath != "" && len(structs) > 0 {
+		toSql(structs)
 	}
 
 	fmt.Println("")
@@ -117,6 +123,14 @@ func SetToUnityPath(path string) {
 	fmt.Println("set excel to unity path", excelToUnityPath)
 }
 
+// SetToSqlPath
+// @Description: 设置导出Sql地址
+// @param path
+func SetToSqlPath(path string) {
+	excelToSqlPath, _ = filepath.Abs(path)
+	fmt.Println("set excel to sql path", excelToSqlPath)
+}
+
 // SetToUnityNamespace
 // @Description: 设置excel导出到unity的命名空间,默认不设置的话为 HotFix.Config
 // @param namespace
@@ -161,8 +175,16 @@ type {{.StructName}}Conf struct {
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
-	tp.Execute(file, metalist)
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			fmt.Println("close file error:", err)
+		}
+	}(file)
+	err = tp.Execute(file, metalist)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func toUnity(metalist []*configStruct) {
@@ -199,8 +221,16 @@ namespace %v
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
-	tp.Execute(file, metalist)
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			fmt.Println("close file error:", err)
+		}
+	}(file)
+	err = tp.Execute(file, metalist)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func toTGFFrameworkUnity(metalist []*configStruct) {
@@ -326,9 +356,86 @@ namespace %v
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
-	tp.Execute(file, metalist)
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			fmt.Println("close file error:", err)
+		}
+	}(file)
+	err = tp.Execute(file, metalist)
+	if err != nil {
+		panic(err)
+	}
 
+}
+
+func toSql(metalist []*configStruct) {
+	for _, config := range metalist {
+		tableName := "c_" + toSnakeCase(config.StructName)
+		sqlContent := ""
+		// create table
+		sqlContent += fmt.Sprintf("DROP TABLE IF EXISTS `%s`;\n", tableName)
+		sqlContent += fmt.Sprintf("CREATE TABLE `%s` (\n", tableName)
+		for _, field := range config.Fields {
+			if strings.Contains(field.Region, "s") {
+				sqlContent += fmt.Sprintf("  `%s` %s COMMENT '%s',\n", toSnakeCase(field.Key), convertToMysqlFieldType(field.Typ), field.Des)
+			}
+		}
+		sqlContent = strings.TrimRight(sqlContent, ",\n") + "\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n"
+
+		// insert
+		if len(config.Data) > 0 {
+			sqlContent += fmt.Sprintf("INSERT INTO `%s` (", tableName)
+			fields := make([]*meta, 0)
+			for _, field := range config.Fields {
+				if strings.Contains(field.Region, "s") {
+					sqlContent += fmt.Sprintf("`%s`,", toSnakeCase(field.Key))
+					fields = append(fields, field)
+				}
+			}
+			sqlContent = strings.TrimRight(sqlContent, ",") + ") VALUES \n"
+
+			for i, row := range config.Data {
+				sqlContent += "("
+				for _, field := range fields {
+					val := row[field.Idx]
+					if val == nil {
+						sqlContent += "NULL,"
+						continue
+					}
+					switch field.Typ {
+					case "string", "time", "[]string":
+						sqlContent += fmt.Sprintf("'%s',", strings.ReplaceAll(val.(string), "'", "''"))
+					default:
+						strVal := fmt.Sprintf("%v", val)
+						if strVal == "" {
+							sqlContent += "0,"
+						} else {
+							sqlContent += fmt.Sprintf("%s,", strVal)
+						}
+					}
+				}
+				sqlContent = strings.TrimRight(sqlContent, ",")
+				if i == len(config.Data)-1 {
+					sqlContent += ");\n"
+				} else {
+					sqlContent += "),\n"
+				}
+			}
+		}
+
+		// output
+		if excelToSqlPath != "" {
+			err := os.MkdirAll(excelToSqlPath, os.ModePerm)
+			if err != nil {
+				panic(err)
+			}
+			err = output(excelToSqlPath, tableName+".sql", sqlContent)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}
+	}
 }
 
 //
@@ -337,6 +444,7 @@ type configStruct struct {
 	StructName string
 	Fields     []*meta
 	Version    string
+	Data       []rowdata
 }
 
 func GetFiledName(name string) string {
@@ -470,6 +578,7 @@ func parseFile(file string) []*configStruct {
 		result.Fields = metaList
 		result.StructName = s
 		result.Version = version
+		result.Data = dataList
 		rs = append(rs, result)
 		fmt.Println("excel export : json file", jsonFile, "golang struct :", s+"Conf", "[", version, "]")
 	}
@@ -491,6 +600,39 @@ func convertToUnityFieldType(t string) string {
 	default:
 		return t
 	}
+}
+
+func convertToMysqlFieldType(t string) string {
+	switch t {
+	case "int8", "uint8":
+		return "tinyint"
+	case "int16", "uint16":
+		return "smallint"
+	case "int32", "uint32":
+		return "int"
+	case "int64", "uint64":
+		return "bigint"
+	case "float32":
+		return "float"
+	case "float64":
+		return "double"
+	case "string":
+		return "varchar(200)"
+	case "time":
+		return "datetime"
+	case "[]int32", "[]int64", "[]string":
+		return "text"
+	default:
+		return "varchar(255)"
+	}
+}
+
+func toSnakeCase(str string) string {
+	var matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
+	var matchAllCap = regexp.MustCompile("([a-z0-9])([A-Z])")
+	snake := matchFirstCap.ReplaceAllString(str, "${1}_${2}")
+	snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
+	return strings.ToLower(snake)
 }
 
 const (
@@ -565,7 +707,7 @@ func convertToStringSlice(input string) string {
 	// Convert the string array to json
 	jsonData, err := sonic.Marshal(splitInput)
 	if err != nil {
-		fmt.Sprintf("string array error %v", err)
+		fmt.Printf("string array error %v\n", err)
 	}
 	return string(jsonData)
 }
@@ -578,7 +720,12 @@ func output(path, filename, str string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			fmt.Println("close file error:", err)
+		}
+	}(f)
 
 	_, err = f.WriteString(str)
 	if err != nil {
@@ -632,8 +779,16 @@ const(
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
-	tp.Execute(file, data)
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			fmt.Println("close file error:", err)
+		}
+	}(file)
+	err = tp.Execute(file, data)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func JsonToErrorStruct(packageName, fileName, outPath string, data []TemplateKeyValueData) {
@@ -677,8 +832,16 @@ func newError(msg string, code int32) tgf.GameError {
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
-	tp.Execute(file, data)
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			fmt.Println("close file error:", err)
+		}
+	}(file)
+	err = tp.Execute(file, data)
+	if err != nil {
+		panic(err)
+	}
 
 }
 
@@ -687,7 +850,12 @@ func loadMd5File(file string) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			fmt.Println("close file error:", err)
+		}
+	}(f)
 
 	reader := bufio.NewReader(f)
 	for {
@@ -728,7 +896,13 @@ func saveMd5File(file string) {
 		return
 	}
 	for fileName, fileMd5 := range cacheMd5File {
-		f.WriteString(fmt.Sprintf("%v,%v\n", fileName, fileMd5))
+		_, err := f.WriteString(fmt.Sprintf("%v,%v\n", fileName, fileMd5))
+		if err != nil {
+			fmt.Println("write md5 file error:", err)
+		}
 	}
-	f.Close()
+	err = f.Close()
+	if err != nil {
+		fmt.Println("close md5 file error:", err)
+	}
 }

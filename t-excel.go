@@ -3,9 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/thkhxm/excel-kit/excel"
 	"os"
 	"strings"
+
+	"github.com/thkhxm/excel-kit/excel"
 )
 
 // ***************************************************
@@ -26,6 +27,7 @@ func main() {
 	jsonPath := flag.String("jsonPath", "./generated/conf/js", "Path to the json files")
 	goPath := flag.String("goPath", "", "Path to the go files")
 	tsPath := flag.String("tsPath", "", "Path to the ts files")
+	sqlPath := flag.String("sqlPath", "", "Path to the sql files")
 	// Parse command-line flags
 	flag.Parse()
 
@@ -61,6 +63,7 @@ func main() {
 	excel.SetToJsonPath(*jsonPath)
 	excel.SetToGoPath(*goPath)
 	excel.SetToTsPath(*tsPath)
+	excel.SetToSqlPath(*sqlPath)
 
 	// Start export
 	excel.Export()

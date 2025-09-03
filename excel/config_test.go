@@ -1,6 +1,8 @@
 package excel_test
 
 import (
+	"testing"
+
 	"github.com/thkhxm/excel-kit/excel"
 )
 
@@ -20,6 +22,17 @@ func ExampleExport() {
 	excel.SetToGoPath("./generated/conf")
 	//设置excel导出的json文件路径
 	excel.SetToJsonPath("./generated/conf/js")
+	//设置excel导出的sql文件路径
+	excel.SetToSqlPath("./generated/sql")
+	//开始导出excel
+	excel.Export()
+}
+
+func TestExportSql(t *testing.T) {
+	//设置excel文件路径
+	excel.SetPath("./")
+	//设置excel导出的sql文件路径
+	excel.SetToSqlPath("./generated/sql")
 	//开始导出excel
 	excel.Export()
 }
